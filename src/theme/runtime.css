@@ -1,0 +1,48 @@
+/* Defines the fullscreen browser shell and theme variables for the runtime. */
+:root {
+  color-scheme: dark;
+  font-family: var(--codewall-font-mono, 'IBM Plex Mono', 'Fira Code', monospace);
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.2), transparent 36%),
+    radial-gradient(circle at 20% 80%, rgba(94, 234, 212, 0.16), transparent 28%),
+    var(--codewall-background, #050816);
+  color: var(--codewall-text, #f8fafc);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+.app-shell {
+  position: relative;
+}
+
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--codewall-grid-line, rgba(148, 163, 184, 0.08)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--codewall-grid-line, rgba(148, 163, 184, 0.08)) 1px, transparent 1px);
+  background-size: 80px 80px;
+  mask-image: radial-gradient(circle at center, black 45%, transparent 85%);
+  pointer-events: none;
+}
+
+.codewall-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
