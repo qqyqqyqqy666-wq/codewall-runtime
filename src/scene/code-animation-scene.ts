@@ -18,6 +18,7 @@ import type { TypeflowEmitter } from '../effects/typeflow-emitter';
 import type { KeyboardInput } from '../input/keyboard-input';
 import type { MouseInput } from '../input/mouse-input';
 import type { FpsMonitor } from '../perf/fps-monitor';
+import type { RuntimeMode } from '../state/state-machine';
 import type { DarkTerminalTheme } from '../theme/dark-terminal-theme';
 
 type CodeAnimationSceneOptions = {
@@ -26,6 +27,7 @@ type CodeAnimationSceneOptions = {
   keyboardInput: KeyboardInput;
   fpsMonitor: FpsMonitor;
   typeflowEmitter: TypeflowEmitter;
+  getRuntimeMode: () => RuntimeMode;
   theme: DarkTerminalTheme;
 };
 
@@ -124,7 +126,10 @@ export class CodeAnimationScene {
       return;
     }
 
-    if (this.options.keyboardInput.isPressed('Space')) {
+    const runtimeMode = this.options.getRuntimeMode();
+    const typeflowEnabled = runtimeMode === 'TYPEFLOW';
+
+    if (typeflowEnabled && this.options.keyboardInput.isPressed('Space')) {
       this.options.typeflowEmitter.pulse(0.55);
     }
 
