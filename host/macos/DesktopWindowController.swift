@@ -31,6 +31,8 @@ final class DesktopWindowController: NSWindowController {
 
     super.init(window: window)
     shouldCascadeWindows = false
+
+    window.orderFrontRegardless()
   }
 
   @available(*, unavailable)
