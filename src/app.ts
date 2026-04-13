@@ -6,16 +6,19 @@ import './theme/runtime.css';
 import { TypeflowEmitter } from './effects/typeflow-emitter';
 import { GlyphAtlas } from './glyphs/glyph-atlas';
 import { GlyphPool } from './glyphs/glyph-pool';
-import { HandTracker, type HandFrame } from './input/hand-tracker';
+import { HandTracker, type HandFrame, type HandTrackerStatus } from './input/hand-tracker';
 import { KeyboardInput } from './input/keyboard-input';
 import { MouseInput } from './input/mouse-input';
 import { FpsMonitor } from './perf/fps-monitor';
 import { CodeAnimationScene } from './scene/code-animation-scene';
+import { onHostLifecycleSignal } from './host/host-lifecycle';
+import { RuntimeLifecyclePolicy, type RuntimeLifecycleState } from './host/lifecycle-policy';
 import { RuntimeModeState, StateMachine } from './state/state-machine';
 import { applyDarkTerminalTheme, darkTerminalTheme } from './theme/dark-terminal-theme';
 
 type AppPhase = 'booting' | 'ready' | 'running';
 const HAND_INACTIVE_TIMEOUT_MS = 300;
+const HAND_TRACKING_RETRY_COOLDOWN_MS = 15_000;
 const ATTRACT_PINCH_THRESHOLD = 0.7;
 const REPEL_FIST_THRESHOLD = 0.7;
 const VORTEX_OPENNESS_THRESHOLD = 0.8;
@@ -35,6 +38,11 @@ export class App {
   private handFrameUnsubscribe: (() => void) | null = null;
   private handInactiveTimeoutId: number | null = null;
   private runtimeModeFrameId: number | null = null;
+  private hostLifecycleUnsubscribe: (() => void) | null = null;
+  private lifecyclePolicyUnsubscribe: (() => void) | null = null;
+  private readonly lifecyclePolicy = new RuntimeLifecyclePolicy('active');
+  private handTrackingBlockedStatus: HandTrackerStatus | null = null;
+  private handTrackingBlockedAtMs: number | null = null;
   private handDetected = false;
 
   constructor(private readonly container: HTMLDivElement) {
@@ -66,12 +74,100 @@ export class App {
     this.scene.mount();
     this.stateMachine.transition('running');
     this.startRuntimeModeSync();
+    this.bindLifecyclePolicy();
+    this.bindHostLifecycle();
     window.addEventListener('beforeunload', this.handleBeforeUnload);
     void this.initializeHandTracking();
   }
 
+  private bindLifecyclePolicy(): void {
+    this.lifecyclePolicyUnsubscribe?.();
+    this.lifecyclePolicyUnsubscribe = this.lifecyclePolicy.subscribe((state) => {
+      this.handleLifecyclePolicyState(state);
+    });
+  }
+
+  private bindHostLifecycle(): void {
+    this.hostLifecycleUnsubscribe?.();
+    this.hostLifecycleUnsubscribe = onHostLifecycleSignal((signal) => {
+      this.lifecyclePolicy.handleHostSignal(signal);
+    });
+  }
+
+  private handleLifecyclePolicyState(state: RuntimeLifecycleState): void {
+    if (state === 'background-paused') {
+      this.pauseForHostLifecycle();
+      return;
+    }
+
+    if (state === 'background-throttled') {
+      this.throttleForHostLifecycle();
+      return;
+    }
+
+    if (state === 'active') {
+      this.activateForHostLifecycle();
+    }
+  }
+
+  private stopInteractiveRuntimeForHostLifecycle(): void {
+    this.stopRuntimeModeSync();
+    this.clearHandFrameRuntimeModeBinding();
+    this.handTracker.disconnect();
+  }
+
+  private throttleForHostLifecycle(): void {
+    this.stopInteractiveRuntimeForHostLifecycle();
+    this.scene.setThrottled(true);
+    this.scene.resume();
+  }
+
+  private pauseForHostLifecycle(): void {
+    this.stopInteractiveRuntimeForHostLifecycle();
+    this.scene.setThrottled(false);
+    this.scene.pause();
+  }
+
+  private activateForHostLifecycle(): void {
+    if (!this.stateMachine.matches('running')) {
+      return;
+    }
+
+    this.scene.setThrottled(false);
+    this.scene.resume();
+    this.startRuntimeModeSync();
+
+    if (this.handTrackingBlockedStatus !== null && !this.canRetryBlockedHandTracking()) {
+      this.clearHandFrameRuntimeModeBinding();
+      this.runtimeModeState.transition('IDLE');
+      return;
+    }
+
+    if (this.handTrackingBlockedStatus !== null) {
+      this.resetHandTrackingBlockedState();
+    }
+
+    void this.initializeHandTracking();
+  }
+
   private async initializeHandTracking(): Promise<void> {
+    if (this.handTrackingBlockedStatus !== null && !this.canRetryBlockedHandTracking()) {
+      this.clearHandFrameRuntimeModeBinding();
+      this.runtimeModeState.transition('IDLE');
+      return;
+    }
+
+    if (this.handTrackingBlockedStatus !== null) {
+      this.resetHandTrackingBlockedState();
+    }
+
     await this.handTracker.initialize();
+
+    if (this.lifecyclePolicy.state !== 'active') {
+      this.clearHandFrameRuntimeModeBinding();
+      this.runtimeModeState.transition('IDLE');
+      return;
+    }
 
     const status = this.handTracker.getStatus();
 
@@ -80,12 +176,31 @@ export class App {
       return;
     }
 
+    if (status === 'denied' || status === 'unavailable' || status === 'error') {
+      this.handTrackingBlockedStatus = status;
+      this.handTrackingBlockedAtMs = Date.now();
+      console.info(`[App] Hand tracking blocked (${status}); keeping runtime input policy in safe IDLE mode.`);
+    }
+
     this.clearHandFrameRuntimeModeBinding();
     this.runtimeModeState.transition('IDLE');
 
     if (status !== 'running' && status !== 'idle') {
       console.info(`[App] Hand tracking inactive (${status}).`);
     }
+  }
+
+  private canRetryBlockedHandTracking(): boolean {
+    if (this.handTrackingBlockedStatus === null || this.handTrackingBlockedAtMs === null) {
+      return false;
+    }
+
+    return Date.now() - this.handTrackingBlockedAtMs >= HAND_TRACKING_RETRY_COOLDOWN_MS;
+  }
+
+  private resetHandTrackingBlockedState(): void {
+    this.handTrackingBlockedStatus = null;
+    this.handTrackingBlockedAtMs = null;
   }
 
   private bindHandFrameRuntimeMode(): void {
@@ -174,6 +289,12 @@ export class App {
   private readonly handleBeforeUnload = (): void => {
     this.stopRuntimeModeSync();
     this.clearHandFrameRuntimeModeBinding();
+    this.handTracker.disconnect();
+    this.hostLifecycleUnsubscribe?.();
+    this.hostLifecycleUnsubscribe = null;
+    this.lifecyclePolicyUnsubscribe?.();
+    this.lifecyclePolicyUnsubscribe = null;
+    this.scene.pause();
   };
 
   private isAttractActive(frame: Readonly<HandFrame>): boolean {
