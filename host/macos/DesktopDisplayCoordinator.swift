@@ -4,6 +4,7 @@ final class DesktopDisplayCoordinator {
   private let bundle: Bundle
   private var controllersByScreenId: [ObjectIdentifier: DesktopWindowController] = [:]
   private var screenObserver: NSObjectProtocol?
+  private var startupRetryScheduled = false
 
   init(bundle: Bundle) {
     self.bundle = bundle
@@ -25,6 +26,8 @@ final class DesktopDisplayCoordinator {
     ) { [weak self] _ in
       self?.rebuildWindows()
     }
+
+    scheduleStartupRetryIfNeeded()
   }
 
   private func rebuildWindows() {
@@ -46,6 +49,24 @@ final class DesktopDisplayCoordinator {
     for (screenId, controller) in controllersByScreenId where !activeIds.contains(screenId) {
       controller.close()
       controllersByScreenId.removeValue(forKey: screenId)
+    }
+  }
+
+  private func scheduleStartupRetryIfNeeded() {
+    guard !startupRetryScheduled else {
+      return
+    }
+
+    startupRetryScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else {
+        return
+      }
+      self.startupRetryScheduled = false
+
+      if self.controllersByScreenId.isEmpty {
+        self.rebuildWindows()
+      }
     }
   }
 }
