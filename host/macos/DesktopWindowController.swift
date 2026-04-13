@@ -8,7 +8,11 @@ private final class DesktopHostWindow: NSWindow {
 
 final class DesktopWindowController: NSWindowController {
   init(bundle: Bundle, screen: NSScreen) {
-    let contentRect = screen.frame
+    self.init(bundle: bundle, contentRect: screen.frame)
+  }
+
+  init(bundle: Bundle, contentRect: NSRect) {
+    NSLog("[CodewallHost][Diag] DesktopWindowController.init frame=%@", NSStringFromRect(contentRect))
     let window = DesktopHostWindow(
       contentRect: contentRect,
       styleMask: [.borderless],
@@ -31,6 +35,21 @@ final class DesktopWindowController: NSWindowController {
 
     super.init(window: window)
     shouldCascadeWindows = false
+
+    window.orderFrontRegardless()
+    NSLog("[CodewallHost][Diag] window ordered: visible=%@ appWindows=%ld",
+          window.isVisible ? "yes" : "no",
+          NSApp.windows.count)
+
+    DispatchQueue.main.async { [weak window] in
+      guard let window else {
+        NSLog("[CodewallHost][Diag] async visibility check: window released")
+        return
+      }
+      NSLog("[CodewallHost][Diag] async visibility check: visible=%@ occlusion=%ld",
+            window.isVisible ? "yes" : "no",
+            window.occlusionState.rawValue)
+    }
   }
 
   @available(*, unavailable)
@@ -44,6 +63,7 @@ final class DesktopWindowController: NSWindowController {
     }
 
     let contentRect = screen.frame
+    NSLog("[CodewallHost][Diag] updateGeometry frame=%@", NSStringFromRect(contentRect))
     window.setFrame(contentRect, display: true)
   }
 }

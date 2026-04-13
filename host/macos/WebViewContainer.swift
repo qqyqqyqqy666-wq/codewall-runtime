@@ -50,6 +50,7 @@ final class WebViewContainer: NSViewController, WKNavigationDelegate {
   }
 
   private func loadLocalRuntime() {
+    NSLog("[CodewallHost][Diag] loadLocalRuntime begin")
     guard
       let runtimeURL = bundle.url(forResource: "index", withExtension: "html", subdirectory: "dist")
     else {
@@ -57,6 +58,7 @@ final class WebViewContainer: NSViewController, WKNavigationDelegate {
       return
     }
 
+    NSLog("[CodewallHost][Diag] loadLocalRuntime resolved url=%@", runtimeURL.path)
     webView.loadFileURL(runtimeURL, allowingReadAccessTo: runtimeURL.deletingLastPathComponent())
   }
 
