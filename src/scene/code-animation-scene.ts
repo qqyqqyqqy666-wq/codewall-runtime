@@ -32,6 +32,15 @@ type CodeAnimationSceneOptions = {
 };
 
 export class CodeAnimationScene {
+  private static readonly THROTTLED_FRAME_INTERVAL_MS = 1000 / 12;
+
+  private static readonly ATTRACT_PULL = 0.35;
+  private static readonly ATTRACT_DEPTH_PULL = 0.2;
+  private static readonly REPEL_PUSH = 1.3;
+  private static readonly REPEL_DEPTH_PUSH = 1.18;
+  private static readonly VORTEX_SPEED = 0.9;
+  private static readonly VORTEX_RADIUS = 0.9;
+
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(55, 1, 0.1, 100);
   private readonly renderer = new WebGLRenderer({ antialias: true, alpha: true });
@@ -39,8 +48,10 @@ export class CodeAnimationScene {
   private readonly basePositions: number[] = [];
 
   private animationFrameId: number | null = null;
+  private throttleTimeoutId: number | null = null;
   private particles: Points<BufferGeometry, PointsMaterial> | null = null;
   private mounted = false;
+  private throttled = false;
 
   constructor(private readonly options: CodeAnimationSceneOptions) {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -61,6 +72,49 @@ export class CodeAnimationScene {
     this.handleResize();
 
     window.addEventListener('resize', this.handleResize);
+    this.render();
+  }
+
+  pause(): void {
+    if (this.animationFrameId !== null) {
+      window.cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    if (this.throttleTimeoutId !== null) {
+      window.clearTimeout(this.throttleTimeoutId);
+      this.throttleTimeoutId = null;
+    }
+  }
+
+  setThrottled(throttled: boolean): void {
+    if (this.throttled === throttled) {
+      return;
+    }
+
+    this.throttled = throttled;
+
+    if (!this.mounted) {
+      return;
+    }
+
+    if (this.animationFrameId !== null) {
+      window.cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+      this.scheduleNextFrame();
+    } else if (this.throttleTimeoutId !== null) {
+      window.clearTimeout(this.throttleTimeoutId);
+      this.throttleTimeoutId = null;
+      this.scheduleNextFrame();
+    }
+  }
+
+  resume(): void {
+    if (!this.mounted || this.animationFrameId !== null) {
+      return;
+    }
+
+    this.clock.getDelta();
     this.render();
   }
 
@@ -128,6 +182,9 @@ export class CodeAnimationScene {
 
     const runtimeMode = this.options.getRuntimeMode();
     const typeflowEnabled = runtimeMode === 'TYPEFLOW';
+    const attractEnabled = runtimeMode === 'ATTRACT';
+    const repelEnabled = runtimeMode === 'REPEL';
+    const vortexEnabled = runtimeMode === 'VORTEX';
 
     if (typeflowEnabled && this.options.keyboardInput.isPressed('Space')) {
       this.options.typeflowEmitter.pulse(0.55);
@@ -148,15 +205,44 @@ export class CodeAnimationScene {
         const baseX = this.basePositions[stride];
         const baseY = this.basePositions[stride + 1];
         const baseZ = this.basePositions[stride + 2];
-        const drift =
+        // Baseline vertical motion shared across modes.
+        const baseDrift =
           Math.sin(elapsedSeconds * 0.85 + index * 0.07 + baseZ * 0.15) * (0.14 + emission * 0.08);
 
-        positions.setXYZ(
-          index,
-          baseX + pointer.x * 0.18,
-          baseY + drift + pointer.y * 0.12,
-          baseZ,
-        );
+        // Mode-specific radial/depth transforms for ATTRACT and REPEL.
+        const attractPulse = attractEnabled ? 1 + Math.sin(elapsedSeconds * 2 + index * 0.05) * 0.06 : 1;
+        const repelPulse = repelEnabled ? 1 + Math.sin(elapsedSeconds * 1.8 + index * 0.04) * 0.05 : 1;
+        const radialScale = attractEnabled
+          ? CodeAnimationScene.ATTRACT_PULL * attractPulse
+          : repelEnabled
+            ? CodeAnimationScene.REPEL_PUSH * repelPulse
+            : 1;
+        const depthScale = attractEnabled
+          ? CodeAnimationScene.ATTRACT_DEPTH_PULL
+          : repelEnabled
+            ? CodeAnimationScene.REPEL_DEPTH_PUSH
+            : 1;
+        const scaledX = baseX * radialScale;
+        const scaledY = baseY * radialScale;
+        const scaledZ = baseZ * depthScale;
+
+        // VORTEX composes from scaled basis, with reduced pointer/drift influence to keep orbit dominant.
+        const orbitRadius = Math.hypot(scaledX, scaledY) * CodeAnimationScene.VORTEX_RADIUS;
+        const orbitBaseAngle = Math.atan2(scaledY, scaledX);
+        const orbitAngle =
+          orbitBaseAngle + elapsedSeconds * CodeAnimationScene.VORTEX_SPEED + baseZ * 0.03;
+        const orbitX = Math.cos(orbitAngle) * orbitRadius;
+        const orbitY = Math.sin(orbitAngle) * orbitRadius;
+
+        const pointerInfluence = vortexEnabled ? 0.06 : 0.18;
+        const driftInfluence = vortexEnabled ? 0.4 : 1;
+        const resolvedX = (vortexEnabled ? orbitX : scaledX) + pointer.x * pointerInfluence;
+        const resolvedY =
+          (vortexEnabled ? orbitY : scaledY) +
+          baseDrift * driftInfluence +
+          pointer.y * pointerInfluence;
+
+        positions.setXYZ(index, resolvedX, resolvedY, scaledZ);
       }
 
       positions.needsUpdate = true;
@@ -165,6 +251,22 @@ export class CodeAnimationScene {
     }
 
     this.renderer.render(this.scene, this.camera);
-    this.animationFrameId = window.requestAnimationFrame(this.render);
+    this.scheduleNextFrame();
   };
+
+  private scheduleNextFrame(): void {
+    if (!this.mounted) {
+      return;
+    }
+
+    if (this.throttled) {
+      this.throttleTimeoutId = window.setTimeout(() => {
+        this.throttleTimeoutId = null;
+        this.render();
+      }, CodeAnimationScene.THROTTLED_FRAME_INTERVAL_MS);
+      return;
+    }
+
+    this.animationFrameId = window.requestAnimationFrame(this.render);
+  }
 }
