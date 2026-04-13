@@ -31,8 +31,7 @@ final class DesktopWindowController: NSWindowController {
 
     super.init(window: window)
     shouldCascadeWindows = false
-
-    window.orderFrontRegardless()
+    NSLog("[CodewallHost][Diag] DesktopWindowController init screen=\(screen.localizedName) frame=\(NSStringFromRect(contentRect))")
   }
 
   @available(*, unavailable)
@@ -47,5 +46,6 @@ final class DesktopWindowController: NSWindowController {
 
     let contentRect = screen.frame
     window.setFrame(contentRect, display: true)
+    NSLog("[CodewallHost][Diag] updateGeometry screen=\(screen.localizedName) frame=\(NSStringFromRect(contentRect))")
   }
 }

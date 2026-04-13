@@ -3,48 +3,16 @@ import Cocoa
 final class HostMenuController: NSObject {
   private let startupLoginController: StartupLoginController
   private var statusItem: NSStatusItem?
-  private var statusMenu: NSMenu?
-  private var applicationMenu: NSMenu?
-  private var launchAtLoginMenuItems: [NSMenuItem] = []
+  private var launchAtLoginMenuItem: NSMenuItem?
 
   init(startupLoginController: StartupLoginController) {
     self.startupLoginController = startupLoginController
   }
 
   func installMenu() {
-    launchAtLoginMenuItems.removeAll()
-
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     statusItem.button?.title = "Codewall"
 
-    let statusMenu = makeHostMenu(quitKeyEquivalent: "q")
-    statusItem.menu = statusMenu
-
-    self.statusItem = statusItem
-    self.statusMenu = statusMenu
-    installApplicationMenu()
-  }
-
-  @objc
-  private func toggleLaunchAtLogin() {
-    let currentlyEnabled = launchAtLoginMenuItems.first?.state == .on
-    let nextValue = !currentlyEnabled
-    let updated = startupLoginController.setLaunchAtLogin(enabled: nextValue)
-
-    if updated {
-      let state: NSControl.StateValue = nextValue ? .on : .off
-      for menuItem in launchAtLoginMenuItems {
-        menuItem.state = state
-      }
-    }
-  }
-
-  @objc
-  private func quitApp() {
-    NSApplication.shared.terminate(nil)
-  }
-
-  private func makeHostMenu(quitKeyEquivalent: String) -> NSMenu {
     let menu = NSMenu()
 
     let launchAtLoginItem = NSMenuItem(
@@ -54,28 +22,42 @@ final class HostMenuController: NSObject {
     )
     launchAtLoginItem.target = self
     launchAtLoginItem.state = startupLoginController.launchAtLoginEnabled ? .on : .off
-    launchAtLoginMenuItems.append(launchAtLoginItem)
     menu.addItem(launchAtLoginItem)
 
     menu.addItem(.separator())
 
-    let quitItem = NSMenuItem(title: "Quit Codewall", action: #selector(quitApp), keyEquivalent: quitKeyEquivalent)
+    let quitItem = NSMenuItem(title: "Quit Codewall", action: #selector(quitApp), keyEquivalent: "q")
     quitItem.target = self
     menu.addItem(quitItem)
 
-    return menu
+    statusItem.menu = menu
+
+    self.statusItem = statusItem
+    self.launchAtLoginMenuItem = launchAtLoginItem
+    NSLog("[CodewallHost][Diag] status menu installed")
   }
 
-  private func installApplicationMenu() {
-    let appName = Bundle.main.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String ?? "CodewallHost"
-    let mainMenu = NSMenu(title: appName)
-    let appMenuItem = NSMenuItem(title: appName, action: nil, keyEquivalent: "")
-    mainMenu.addItem(appMenuItem)
+  @objc
+  private func toggleLaunchAtLogin() {
+    guard let launchAtLoginMenuItem else {
+      return
+    }
 
-    let appMenu = makeHostMenu(quitKeyEquivalent: "q")
-    appMenuItem.submenu = appMenu
+    let nextValue = launchAtLoginMenuItem.state != .on
+    let updated = startupLoginController.setLaunchAtLogin(enabled: nextValue)
 
-    NSApplication.shared.mainMenu = mainMenu
-    applicationMenu = appMenu
+    if updated {
+      launchAtLoginMenuItem.state = nextValue ? .on : .off
+      NSLog("[CodewallHost][Diag] launch-at-login toggled enabled=\(nextValue)")
+      return
+    }
+
+    NSLog("[CodewallHost][Diag] launch-at-login toggle failed enabled=\(nextValue)")
+  }
+
+  @objc
+  private func quitApp() {
+    NSLog("[CodewallHost][Diag] quit requested from menu")
+    NSApplication.shared.terminate(nil)
   }
 }

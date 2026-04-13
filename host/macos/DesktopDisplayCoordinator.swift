@@ -4,7 +4,6 @@ final class DesktopDisplayCoordinator {
   private let bundle: Bundle
   private var controllersByScreenId: [ObjectIdentifier: DesktopWindowController] = [:]
   private var screenObserver: NSObjectProtocol?
-  private var startupRetryScheduled = false
 
   init(bundle: Bundle) {
     self.bundle = bundle
@@ -17,6 +16,7 @@ final class DesktopDisplayCoordinator {
   }
 
   func start() {
+    NSLog("[CodewallHost][Diag] DesktopDisplayCoordinator.start")
     rebuildWindows()
 
     screenObserver = NotificationCenter.default.addObserver(
@@ -26,47 +26,31 @@ final class DesktopDisplayCoordinator {
     ) { [weak self] _ in
       self?.rebuildWindows()
     }
-
-    scheduleStartupRetryIfNeeded()
   }
 
   private func rebuildWindows() {
     let activeScreens = NSScreen.screens
     let activeIds = Set(activeScreens.map { ObjectIdentifier($0) })
+    NSLog("[CodewallHost][Diag] rebuildWindows activeScreens=\(activeScreens.count)")
 
     for screen in activeScreens {
       let screenId = ObjectIdentifier(screen)
       if let controller = controllersByScreenId[screenId] {
         controller.updateGeometry(for: screen)
+        NSLog("[CodewallHost][Diag] updated existing window for screen=\(screen.localizedName)")
         continue
       }
 
       let controller = DesktopWindowController(bundle: bundle, screen: screen)
       controller.showWindow(self)
       controllersByScreenId[screenId] = controller
+      NSLog("[CodewallHost][Diag] created window for screen=\(screen.localizedName)")
     }
 
     for (screenId, controller) in controllersByScreenId where !activeIds.contains(screenId) {
       controller.close()
       controllersByScreenId.removeValue(forKey: screenId)
-    }
-  }
-
-  private func scheduleStartupRetryIfNeeded() {
-    guard !startupRetryScheduled else {
-      return
-    }
-
-    startupRetryScheduled = true
-    DispatchQueue.main.async { [weak self] in
-      guard let self else {
-        return
-      }
-      self.startupRetryScheduled = false
-
-      if self.controllersByScreenId.isEmpty {
-        self.rebuildWindows()
-      }
+      NSLog("[CodewallHost][Diag] removed window for detached screen id=\(screenId)")
     }
   }
 }

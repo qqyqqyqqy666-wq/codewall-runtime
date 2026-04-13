@@ -8,11 +8,13 @@ final class CodewallHostApp: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
+    NSLog("[CodewallHost][Diag] applicationDidFinishLaunching")
     startupLoginController.applyStartupPolicy()
     hostMenuController.installMenu()
     let coordinator = DesktopDisplayCoordinator(bundle: .main)
     coordinator.start()
     desktopDisplayCoordinator = coordinator
+    NSLog("[CodewallHost][Diag] desktop display coordinator started")
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

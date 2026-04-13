@@ -35,6 +35,7 @@ final class WebViewContainer: NSViewController, WKNavigationDelegate {
     view.addSubview(webView)
     lifecycleBridge = HostLifecycleBridge(webView: webView)
     lifecycleBridge?.startObserving(window: view.window)
+    NSLog("[CodewallHost][Diag] WebViewContainer viewDidLoad")
 
     loadLocalRuntime()
   }
@@ -42,11 +43,13 @@ final class WebViewContainer: NSViewController, WKNavigationDelegate {
   override func viewDidAppear() {
     super.viewDidAppear()
     lifecycleBridge?.startObserving(window: view.window)
+    NSLog("[CodewallHost][Diag] WebViewContainer viewDidAppear")
   }
 
   override func viewWillDisappear() {
     super.viewWillDisappear()
     lifecycleBridge?.stopObserving()
+    NSLog("[CodewallHost][Diag] WebViewContainer viewWillDisappear")
   }
 
   private func loadLocalRuntime() {
@@ -58,10 +61,12 @@ final class WebViewContainer: NSViewController, WKNavigationDelegate {
     }
 
     webView.loadFileURL(runtimeURL, allowingReadAccessTo: runtimeURL.deletingLastPathComponent())
+    NSLog("[CodewallHost][Diag] loading runtime url=\(runtimeURL.path)")
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     lifecycleBridge?.emit(.visible)
     lifecycleBridge?.emit(.resume)
+    NSLog("[CodewallHost][Diag] webView didFinish navigation")
   }
 }
